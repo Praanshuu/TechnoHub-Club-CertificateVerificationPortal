@@ -23,11 +23,9 @@ export default function VerificationForm() {
       const result = await res.json();
 
       if (res.ok && result.valid) {
-        toast.success('✅ Valid Certificate', {
-          description: `👤 ${result.participant.name} · 📛 ${result.event?.event_name || 'N/A'} · 📅 ${new Date(result.event?.date).toLocaleDateString()}`,
+        toast.success('✅ Certificate is valid!', {
+          description: `Issued to ${result.participant.name} for ${result.event?.event_name || 'this event'} on ${new Date(result.event?.date).toLocaleDateString()}`,
         });
-
-
       } else {
         toast.error('❌ Invalid Certificate', {
           description: result.message || 'Certificate not found or revoked.',

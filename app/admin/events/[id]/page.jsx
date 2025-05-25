@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import EventDetailsClient from "./EventDetailsClient";
 
 export default async function EventDetailsPage({ params }) {
-  const eventId = params.id;
+  const { id: eventId } = await params;
 
   const { data: event, error: eventError } = await getEventById(eventId);
   if (eventError || !event) return notFound();

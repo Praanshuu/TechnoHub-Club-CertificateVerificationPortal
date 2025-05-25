@@ -78,6 +78,34 @@ export default function EventDetailsClient({ event, participants, participantsEr
       </tr>
     );
   }
+  async function handleImport() {
+  if (!event.id || !event.google_sheet_url) {
+    toast.error('Missing event ID or Google Sheet URL');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/participants/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        eventId: event.id,
+        googleSheetUrl: event.google_sheet_url,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Import failed');
+    }
+
+    toast.success(`✅ Imported ${data.count} participants`);
+  } catch (error) {
+    toast.error(error.message);
+  }
+}
+
 
   return (
     <div className="space-y-8">
@@ -131,11 +159,14 @@ export default function EventDetailsClient({ event, participants, participantsEr
               + Add Participant
             </Link>
             <button
+              onClick={handleImport}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm"
-              disabled
+              disabled={!event.google_sheet_url}
+              title={!event.google_sheet_url ? 'No Google Sheet URL set' : ''}
             >
               🔄 Sync from Google Sheet
             </button>
+
           </div>
         </div>
 
