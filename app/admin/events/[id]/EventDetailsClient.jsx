@@ -6,7 +6,9 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { saveAs } from 'file-saver';
 
-export default function EventDetailsClient({ event, participants, participantsError }) {
+export default function EventDetailsClient({ event, participants: initialParticipants, participantsError }) {
+  const [participants, setParticipants] = useState(initialParticipants || []);
+
   const router = useRouter();
 
   async function handleDelete() {
@@ -79,34 +81,70 @@ export default function EventDetailsClient({ event, participants, participantsEr
     );
   }
   async function handleImport() {
-  if (!event.id || !event.google_sheet_url) {
-    toast.error('Missing event ID or Google Sheet URL');
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/participants/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        eventId: event.id,
-        googleSheetUrl: event.google_sheet_url,
-      }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.error || 'Import failed');
+    if (!event.id || !event.google_sheet_url) {
+      toast.error('Missing event ID or Google Sheet URL');
+      return;
     }
 
-    toast.success(`✅ Imported ${data.count} participants`);
-  } catch (error) {
-    toast.error(error.message);
+    try {
+      const res = await fetch('/api/participants/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: event.id,
+          googleSheetUrl: event.google_sheet_url,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Import failed');
+      }
+
+      toast.success(`✅ Successfully imported ${data?.count ?? 0} participants.`);
+
+      const refreshed = await fetch(`/api/participants/event/${event.id}`);
+      const updated = await refreshed.json();
+      console.log("Updated participants list:", updated.participants); // <-- check this
+      setParticipants(updated.participants || []);
+
+    } catch (error) {
+      toast.error(error.message);
+    }
   }
-}
 
+  function handleExport() {
+    if (!event || !participants?.length) {
+      toast.error("Nothing to export");
+      return;
+    }
 
+    const headers = ['Name', 'Email', 'Certificate ID', 'Created At', 'Status'];
+    const rows = participants.map((p) => [
+      `"${p.name}"`,
+      `"${p.email}"`,
+      `"${p.certificate_id}"`,
+      `"${new Date(p.created_at).toLocaleString()}"`,
+      `"${p.revoked ? 'Revoked' : 'Active'}"`
+    ]);
+
+    // Add event metadata at the top
+    const eventDetails = [
+      ['Event Name', `"${event.event_name}"`],
+      ['Event Code', `"${event.event_code}"`],
+      ['Date', `"${event.date}"`],
+      [],
+      headers,
+      ...rows
+    ];
+
+    const csvContent = eventDetails.map((e) => e.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const filename = `${event.event_code}_participants_export.csv`;
+
+    saveAs(blob, filename);
+  }
   return (
     <div className="space-y-8">
       {/* Event Info */}
@@ -150,7 +188,13 @@ export default function EventDetailsClient({ event, participants, participantsEr
       {/* Participants Section */}
       <section className="bg-white shadow rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-gray-800">Participants</h2>
+          <h2 className="text-xl font-semibold text-gray-800">
+            Participants{' '}
+            <span className="text-gray-500 text-base font-normal">
+              ({participants?.length ?? 0})
+            </span>
+          </h2>
+
           <div className="flex gap-2">
             <Link
               href={`/admin/events/${event.id}/add-participant`}
@@ -165,6 +209,12 @@ export default function EventDetailsClient({ event, participants, participantsEr
               title={!event.google_sheet_url ? 'No Google Sheet URL set' : ''}
             >
               🔄 Sync from Google Sheet
+            </button>
+            <button
+              onClick={handleExport}
+              className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-md text-sm"
+            >
+              ⬇️ Export Data
             </button>
 
           </div>

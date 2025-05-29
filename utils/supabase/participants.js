@@ -17,7 +17,9 @@ export async function getParticipantsByEventId(eventId) {
 export async function createParticipant(participantData) {
   const { data, error } = await supabase
     .from('participants')
-    .insert([participantData]);
+    .upsert([participantData], {
+      onConflict: ['event_id', 'email', 'name'],
+    });
 
   return { data, error };
 }

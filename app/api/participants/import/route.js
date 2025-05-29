@@ -16,25 +16,21 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Missing eventId in request' }, { status: 400 });
     }
 
-    // 1. Fetch event details (event_code, date, google_sheet_url)
     const { data: event, error: eventError } = await supabase
       .from('events')
       .select('event_code, date, google_sheet_url')
       .eq('id', eventId)
       .single();
 
-    if (eventError) {
-      console.error('Error fetching event:', eventError);
+    if (eventError || !event) {
       return NextResponse.json({ error: 'Failed to fetch event details' }, { status: 500 });
     }
 
-    if (!event || !event.google_sheet_url) {
-      return NextResponse.json({ error: 'Event not found or missing Google Sheet URL' }, { status: 404 });
+    if (!event.google_sheet_url) {
+      return NextResponse.json({ error: 'Missing Google Sheet URL in event' }, { status: 400 });
     }
 
-    // 2. Fetch data from Google Sheet Apps Script URL
     const res = await fetch(event.google_sheet_url);
-
     if (!res.ok) {
       return NextResponse.json({ error: 'Failed to fetch data from Google Sheet' }, { status: 502 });
     }
@@ -45,44 +41,52 @@ export async function POST(req) {
       return NextResponse.json({ error: 'No participant data found in the sheet' }, { status: 400 });
     }
 
-    // 3. Prepare data for bulk insertion
-    const clubCode = 'TH'; // Replace or parametrize as needed
+    const clubCode = 'TH';
 
-    const rows = rawData.map((p) => {
-      // Basic validations and normalization
-      const name = p['Name']?.trim();
-      const email = p['Email']?.toLowerCase().trim();
+    const participantKeys = rawData.map((p) => ({
+      email: p['Email']?.toLowerCase().trim(),
+      name: p['Name']?.trim(),
+    })).filter(p => p.email && p.name);
 
-      if (!name || !email) {
-        // Skip incomplete records
-        return null;
-      }
+    const { data: existingParticipants = [] } = await supabase
+      .from('participants')
+      .select('email, name, revoked, certificate_id, created_at')
+      .in('email', participantKeys.map(p => p.email))
+      .eq('event_id', eventId);
+
+    const rows = participantKeys.map(({ name, email }) => {
+      const existing = existingParticipants.find(
+        (ep) => ep.email === email && ep.name === name
+      );
 
       return {
         name,
         email,
-        certificate_id: generateCertificateId(clubCode, event.event_code, event.date),
         event_id: eventId,
-        revoked: false,
-        created_at: new Date().toISOString(),
+        certificate_id: existing?.certificate_id || generateCertificateId(clubCode, event.event_code, event.date),
+        revoked: existing?.revoked ?? false,
+        created_at: existing?.created_at || new Date().toISOString(),
       };
-    }).filter(Boolean); // Remove null entries
+    });
 
     if (rows.length === 0) {
       return NextResponse.json({ error: 'No valid participant records to insert' }, { status: 400 });
     }
 
-    // 4. Bulk insert into Supabase participants table
-    const { error: insertError } = await supabase.from('participants').insert(rows);
+    const { error: upsertError } = await supabase
+      .from('participants')
+      .upsert(rows, {
+        onConflict: ['event_id', 'email', 'name'],
+      });
 
-    if (insertError) {
-      console.error('Bulk insert error:', insertError);
-      return NextResponse.json({ error: 'Failed to insert participants' }, { status: 500 });
+    if (upsertError) {
+      console.error('Upsert Error:', upsertError);
+      return NextResponse.json({ error: 'Failed to import participants' }, { status: 500 });
     }
 
-    return NextResponse.json({ message: `✅ Imported ${rows.length} participants successfully` });
+    return NextResponse.json({ message: 'Participants imported successfully', count: rows.length });
   } catch (err) {
-    console.error('Import API error:', err);
+    console.error('Unhandled Import Error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

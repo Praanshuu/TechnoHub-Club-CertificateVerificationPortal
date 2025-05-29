@@ -2,7 +2,7 @@ import VerificationForm from './components/VerificationForm';
 
 export default function Home() {
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white p-4">
+    <main className="min-h-[calc(100vh-64px)] overflow-hidden flex flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white p-4">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">

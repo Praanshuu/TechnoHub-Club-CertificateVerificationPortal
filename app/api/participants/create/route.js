@@ -1,18 +1,21 @@
 import { NextResponse } from 'next/server';
 import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 import { generateCertificateId } from '@/utils/generateCertificateId';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 export async function POST(req) {
   try {
     const body = await req.json();
     const { eventId, name, email } = body;
 
-    // 1. Get event info (event_code and date)
+    if (!eventId || !name || !email) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
     const { data: event, error: eventError } = await supabase
       .from('events')
       .select('event_code, date')
@@ -23,19 +26,30 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
 
-    const clubCode = 'TH'; // hardcoded for now; you can make dynamic later
-    const certId = generateCertificateId(clubCode, event.event_code, event.date);
+    const { data: existingParticipant } = await supabase
+      .from('participants')
+      .select('revoked, certificate_id, created_at')
+      .eq('event_id', eventId)
+      .eq('email', email.toLowerCase())
+      .eq('name', name.trim())
+      .single();
 
-    // 2. Insert participant with generated cert ID
-    const { data, error } = await supabase.from('participants').insert([
-      {
-        name,
-        email,
-        certificate_id: certId,
-        event_id: eventId,
-        revoked: false,
-      },
-    ]);
+    const clubCode = 'TH';
+
+    const newParticipant = {
+      name: name.trim(),
+      email: email.toLowerCase(),
+      event_id: eventId,
+      certificate_id: existingParticipant?.certificate_id || generateCertificateId(clubCode, event.event_code, event.date),
+      revoked: existingParticipant?.revoked ?? false,
+      created_at: existingParticipant?.created_at || new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('participants')
+      .upsert([newParticipant], {
+        onConflict: ['event_id', 'email', 'name'],
+      });
 
     if (error) {
       console.error('Supabase insert error:', error);
@@ -48,4 +62,3 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
-
